@@ -31,12 +31,28 @@ import bit_common
 import bit_hyperrule
 
 
-def topk(output, target, ks=(1,)):
-  """Returns one boolean vector for each k, whether the target is within the output's top-k."""
-  _, pred = output.topk(max(ks), 1, True, True)
-  pred = pred.t()
-  correct = pred.eq(target.view(1, -1).expand_as(pred))
-  return [correct[:k].max(0)[0] for k in ks]
+def sensitivity_score(conf, label=1):
+    if conf.shape == (2, 2):
+        total = conf[label,:].sum()
+        correct = conf[label, label]
+        return correct/total
+    else:
+        return 0
+
+
+def compute_metrics(logits, trues):
+    preds = (torch.sigmoid(logits) > 0.5).cpu().tolist()
+    probs = torch.sigmoid(logits.view(-1)).cpu()
+    
+    acc = accuracy_score(trues, preds)
+    f1 = f1_score(trues, preds, average='binary')
+    conf = confusion_matrix(trues, preds)
+    sensitivity = sensitivity_score(conf, label=1)
+    
+    fpr, tpr, thresholds = roc_curve(trues, probs)
+    roc_auc = auc(fpr, tpr)
+    
+    return acc, f1, conf, sensitivity, roc_auc
 
 
 def recycle(iterable):
@@ -72,7 +88,7 @@ def mktrainval(args, logger):
     train_set = tv.datasets.ImageFolder(pjoin(args.datadir, "train"), train_tx)
     valid_set = tv.datasets.ImageFolder(pjoin(args.datadir, "val"), val_tx)
   elif args.dataset == "covid":
-    
+    train_set, valid_set, test_set = prepare_data(datadir=args.datadir, pct=0.8, seed=4321, train_tx=train_tx, val_tx=val_tx) 
   else:
     raise ValueError(f"Sorry, we have not spent time implementing the "
                      f"{args.dataset} dataset in the PyTorch codebase. "
@@ -114,7 +130,7 @@ def run_eval(model, data_loader, device, chrono, logger, step):
   logger.info("Running validation...")
   logger.flush()
 
-  all_c, all_top1, all_top5 = [], [], []
+  all_c, all_logits, all_y = [], [], []
   end = time.time()
   for b, (x, y) in enumerate(data_loader):
     with torch.no_grad():
@@ -128,18 +144,21 @@ def run_eval(model, data_loader, device, chrono, logger, step):
       with chrono.measure("eval fprop"):
         logits = model(x)
         c = torch.nn.CrossEntropyLoss(reduction='none')(logits, y)
-        top1, top5 = topk(logits, y, ks=(1, 5))
+        all_logits.extend(logits.cpu())
+        all_y.extend(y.cpu())
         all_c.extend(c.cpu())  # Also ensures a sync point.
-        all_top1.extend(top1.cpu())
-        all_top5.extend(top5.cpu())
 
     # measure elapsed time
     end = time.time()
 
+  acc, f1, conf, sensitivity, roc_auc = compute_metrics(logits=all_logits, trues=all_y)
   model.train()
   logger.info(f"Validation@{step} loss {np.mean(all_c):.5f}, "
-              f"top1 {np.mean(all_top1):.2%}, "
-              f"top5 {np.mean(all_top5):.2%}")
+              f"acc {acc:.2%}, "
+              f"f1 {f1:.2%}, "
+              f"conf {conf:.2%}, "
+              f"sensitivity {sensitivity:.2%}, "
+              f"roc_auc {roc_auc:.2%}, ")
   logger.flush()
   return all_c, all_top1, all_top5
 
