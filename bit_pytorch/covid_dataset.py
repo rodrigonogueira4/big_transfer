@@ -1,4 +1,8 @@
-from torch.utils.data import  DataLoader, Dataset, random_split, ConcatDataset
+import h5py
+import os
+import torchvision as tv
+
+from torch.utils.data import  Dataset
 
 
 class RXImagesFolder(Dataset):
@@ -13,32 +17,19 @@ class RXImagesFolder(Dataset):
         tv.transforms.Lambda(lambda img: img * 2.0 - 1.0)        
     ])
 
-    def __init__(self, folder, label):
-        self.folder = folder
-        self.label = label
+    def __init__(self, path, augments):
 
-        self.images = []
-        for fmt in ['png', 'jpg', 'jpeg']:
-            self.images += glob.glob(os.path.join(folder, f'*.{fmt}'))
-
-        self.augments = None
+        h5_file = h5py.File(path, 'r')
+        self.labels = h5_file['label'].value.astype('int64')
+        self.images = h5_file['data'].value.astype('float32')
+        self.classes = ['não covid', 'covid', 'rejeição']
+        self.augments = augments
 
     def __len__(self,):
         return len(self.images)
 
-    def remove_outliers(self, image):
-        p = [1, 99]
-        p1, p2 = np.percentile(image[..., 0], p)
-        
-        image[image < p1] = p1
-        image[image > p2] = p2
-        
-        return image
-        
-        
     def __getitem__(self, idx):
-        im = cv2.imread(self.images[idx],1)
-        im = cv2.resize(im, (512, 512))        
+        im = self.images[idx][None, :, :]
 
         # apply augmentations
         if self.augments is not None:
@@ -46,93 +37,27 @@ class RXImagesFolder(Dataset):
             im = self.augments(im)
 
         # to tensor
-        im = self.transforms(im)
-        return im, self.label
+        #im = self.transforms(im)
+        return im, self.labels[idx]
 
  
-plit_dataset(dataset, pct, seed=0):
-    torch.random.manual_seed(seed)
-    train_size = round(len(dataset) * pct)
-    valid_size = len(dataset) - train_size
-    return random_split(dataset, [train_size, valid_size])
-
 def get_train_augmentations():
     return tv.transforms.Compose([
         tv.transforms.RandomAffine(degrees=(-5, 5), translate=(0.02, 0.02), scale=(0.98, 1.02)),
         tv.transforms.RandomHorizontalFlip(),
     ])
 
+
 def get_valid_augmentations():
     return tv.transforms.Compose([
         tv.transforms.CenterCrop(512)
     ])
 
-def add_augmentations_to_datasets(datasets, augmentations):
-    for ds in datasets:
-        ds.augments = augmentations
 
-def prepare_data(datadir, pct, seed, train_tx, val_tx):
+def prepare_data(datadir, train_tx, valid_tx):
     
-    COVID = 1
-    NON = 0
-    
-    # data from the ideagov
-    covid_ds = RXImagesFolder(os.path.join(datadir, 'COVID'), COVID)
-    normal_ds = RXImagesFolder(os.path.join(datadir, 'NORMAIS'), NON)
-    noncovid_ds = RXImagesFolder(os.path.join(datadir, 'NÃO COVID'), NON)
-
-    # data from the article
-    covid5k_covid_ds = RXImagesFolder(os.path.join(root, 'data_covid5k/train/covid'), COVID)
-    covid5k_noncovid_ds = RXImagesFolder(os.path.join(root, 'data_covid5k/train/non'), NON)
-    
-    covid5k_test_1 = RXImagesFolder(os.path.join(root, 'data_covid5k/test/covid'), COVID)
-    covid5k_test_2 = RXImagesFolder(os.path.join(root, 'data_covid5k/test/non/No_Finding'), NON)
-    covid5k_test_3 = RXImagesFolder(os.path.join(root, 'data_covid5k/test/non/other_diseases'), NON)
-    
-    covid_ds_train, covid_ds_valid = split_dataset(covid_ds, pct, seed)
-    normal_ds_train, normal_ds_valid = split_dataset(normal_ds, pct, seed)
-    noncovid_ds_train, noncovid_ds_valid = split_dataset(noncovid_ds, pct, seed)
-
-    # add train augmentations
-    add_augmentations_to_datasets([
-        covid_ds_train,
-        normal_ds_train,
-        noncovid_ds_train,
-        covid5k_covid_ds,
-        covid5k_noncovid_ds,
-    ], train_tx)
-    
-    ds_train = ConcatDataset([
-        covid_ds_train,
-        normal_ds_train,
-        noncovid_ds_train,
-        covid5k_covid_ds,
-        covid5k_noncovid_ds
-    ])
-
-    add_augmentations_to_datasets([
-        covid_ds_valid,
-        normal_ds_valid,
-        noncovid_ds_valid,
-    ], val_tx)
-
-    ds_valid = ConcatDataset([
-        covid_ds_valid,
-        normal_ds_valid,
-        noncovid_ds_valid,
-
-    ])
-
-    add_augmentations_to_datasets([
-        covid5k_test_1,
-        covid5k_test_2,
-        covid5k_test_3
-    ], val_tx)
-    
-    ds_test = ConcatDataset([
-        covid5k_test_1,
-        covid5k_test_2,
-        covid5k_test_3
-    ])
+    ds_train = RXImagesFolder(os.path.join(datadir, 'xray_550_COVIDx_train_sample2.hdf5'), augments=train_tx)
+    ds_valid = RXImagesFolder(os.path.join(datadir, 'xray_550_COVIDx_val_sample2.hdf5'), augments=valid_tx)
+    ds_test = RXImagesFolder(os.path.join(datadir, 'xray_550_COVIDx_test_sample2.hdf5'), augments=valid_tx)
 
     return ds_train, ds_valid, ds_test

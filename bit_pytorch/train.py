@@ -26,9 +26,15 @@ import torchvision as tv
 import bit_pytorch.fewshot as fs
 import bit_pytorch.lbtoolbox as lb
 import bit_pytorch.models as models
-
+import bit_pytorch.covid_dataset as covid_dataset
 import bit_common
 import bit_hyperrule
+
+from sklearn.metrics import confusion_matrix, accuracy_score, f1_score
+from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_curve
+from sklearn.metrics import auc
+from sklearn.metrics import classification_report
 
 
 def sensitivity_score(conf, label=1):
@@ -41,18 +47,20 @@ def sensitivity_score(conf, label=1):
 
 
 def compute_metrics(logits, trues):
-    preds = (torch.sigmoid(logits) > 0.5).cpu().tolist()
-    probs = torch.sigmoid(logits.view(-1)).cpu()
+    logits = torch.FloatTensor(logits)
+    preds = torch.argmax(logits, dim=-1).cpu().tolist()
+    probs = torch.softmax(logits, dim=-1).cpu().tolist()
     
     acc = accuracy_score(trues, preds)
-    f1 = f1_score(trues, preds, average='binary')
+    f1 = f1_score(trues, preds, average=None)
     conf = confusion_matrix(trues, preds)
     sensitivity = sensitivity_score(conf, label=1)
     
-    fpr, tpr, thresholds = roc_curve(trues, probs)
-    roc_auc = auc(fpr, tpr)
+    # fpr, tpr, thresholds = roc_curve(trues, probs)
+    roc_auc = 0.0# auc(fpr, tpr)
     
-    return acc, f1, conf, sensitivity, roc_auc
+    report = classification_report(y_true=trues, y_pred=preds, target_names=['não covid', 'covid', 'rejeição'])
+    return acc, f1, conf, sensitivity, roc_auc, report
 
 
 def recycle(iterable):
@@ -72,7 +80,7 @@ def mktrainval(args, logger):
       tv.transforms.ToTensor(),
       tv.transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
   ])
-  val_tx = tv.transforms.Compose([
+  valid_tx = tv.transforms.Compose([
       tv.transforms.Resize((crop, crop)),
       tv.transforms.ToTensor(),
       tv.transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
@@ -88,7 +96,7 @@ def mktrainval(args, logger):
     train_set = tv.datasets.ImageFolder(pjoin(args.datadir, "train"), train_tx)
     valid_set = tv.datasets.ImageFolder(pjoin(args.datadir, "val"), val_tx)
   elif args.dataset == "covid":
-    train_set, valid_set, test_set = prepare_data(datadir=args.datadir, pct=0.8, seed=4321, train_tx=train_tx, val_tx=val_tx) 
+    train_set, valid_set, test_set = covid_dataset.prepare_data(datadir=args.datadir, train_tx=train_tx, valid_tx=valid_tx) 
   else:
     raise ValueError(f"Sorry, we have not spent time implementing the "
                      f"{args.dataset} dataset in the PyTorch codebase. "
@@ -108,6 +116,10 @@ def mktrainval(args, logger):
       valid_set, batch_size=micro_batch_size, shuffle=False,
       num_workers=args.workers, pin_memory=True, drop_last=False)
 
+  test_loader = torch.utils.data.DataLoader(
+      test_set, batch_size=micro_batch_size, shuffle=False,
+      num_workers=args.workers, pin_memory=True, drop_last=False)
+
   if micro_batch_size <= len(train_set):
     train_loader = torch.utils.data.DataLoader(
         train_set, batch_size=micro_batch_size, shuffle=True,
@@ -120,7 +132,7 @@ def mktrainval(args, logger):
         train_set, batch_size=micro_batch_size, num_workers=args.workers, pin_memory=True,
         sampler=torch.utils.data.RandomSampler(train_set, replacement=True, num_samples=micro_batch_size))
 
-  return train_set, valid_set, train_loader, valid_loader
+  return train_set, valid_set, test_set, train_loader, valid_loader, test_loader
 
 
 def run_eval(model, data_loader, device, chrono, logger, step):
@@ -144,23 +156,24 @@ def run_eval(model, data_loader, device, chrono, logger, step):
       with chrono.measure("eval fprop"):
         logits = model(x)
         c = torch.nn.CrossEntropyLoss(reduction='none')(logits, y)
-        all_logits.extend(logits.cpu())
-        all_y.extend(y.cpu())
+        all_logits.extend(logits.cpu().tolist())
+        all_y.extend(y.cpu().tolist())
         all_c.extend(c.cpu())  # Also ensures a sync point.
 
     # measure elapsed time
     end = time.time()
 
-  acc, f1, conf, sensitivity, roc_auc = compute_metrics(logits=all_logits, trues=all_y)
+  acc, f1, conf, sensitivity, roc_auc, report = compute_metrics(logits=all_logits, trues=all_y)
+  avg_loss = np.mean(all_c)
   model.train()
-  logger.info(f"Validation@{step} loss {np.mean(all_c):.5f}, "
-              f"acc {acc:.2%}, "
-              f"f1 {f1:.2%}, "
-              f"conf {conf:.2%}, "
-              f"sensitivity {sensitivity:.2%}, "
-              f"roc_auc {roc_auc:.2%}, ")
+  logger.info(f"Validation@{step} loss {avg_loss}, "
+              f"acc {acc}, "
+              f"f1 {f1}, "
+              f"conf {conf}, "
+              f"sensitivity {sensitivity}, "
+              f"roc_auc {roc_auc}, ")
+  logger.info(f"Report:\n{report}")
   logger.flush()
-  return all_c, all_top1, all_top5
 
 
 def mixup_data(x, y, l):
@@ -186,7 +199,7 @@ def main(args):
   device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
   logger.info(f"Going to train on {device}")
 
-  train_set, valid_set, train_loader, valid_loader = mktrainval(args, logger)
+  train_set, valid_set, test_set, train_loader, valid_loader, test_loader = mktrainval(args, logger)
 
   logger.info(f"Loading model from {args.model}.npz")
   model = models.KNOWN_MODELS[args.model](head_size=len(valid_set.classes), zero_head=True)
@@ -293,7 +306,7 @@ def main(args):
       end = time.time()
 
     # Final eval at end of training.
-    run_eval(model, valid_loader, device, chrono, logger, step='end')
+    run_eval(model, test_loader, device, chrono, logger, step='end')
 
   logger.info(f"Timings:\n{chrono}")
 
