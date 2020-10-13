@@ -17,7 +17,9 @@ class RXImagesFolder(Dataset):
         h5_file = h5py.File(path, 'r')
         self.labels = h5_file['label'].value.astype('int64')
         self.images = h5_file['data'].value.astype('float32')
-        self.classes = ['not covid', 'covid', 'rejection']
+        self.images = self.images[self.labels != 2]
+        self.labels = self.labels[self.labels != 2]
+        self.classes = ['not covid', 'covid']
         self.augments = augments
 
     def __len__(self,):
@@ -39,5 +41,5 @@ def prepare_data(datadir, train_tx, valid_tx):
     ds_train = RXImagesFolder(os.path.join(datadir, 'xray_550_COVIDx_train_sample2.hdf5'), augments=train_tx)
     ds_valid = RXImagesFolder(os.path.join(datadir, 'xray_550_COVIDx_val_sample2.hdf5'), augments=valid_tx)
     ds_test = RXImagesFolder(os.path.join(datadir, 'xray_550_COVIDx_test_sample2.hdf5'), augments=valid_tx)
-    
+
     return ds_train, ds_valid, ds_test

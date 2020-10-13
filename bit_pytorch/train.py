@@ -27,6 +27,7 @@ import bit_pytorch.fewshot as fs
 import bit_pytorch.lbtoolbox as lb
 import bit_pytorch.models as models
 import bit_pytorch.covid_dataset as covid_dataset
+import bit_pytorch.covid_dataset_2classes as covid_dataset_2classes
 import bit_common
 import bit_hyperrule
 
@@ -53,7 +54,7 @@ def convert_to_binary_probs(probs):
     return [probs_i[1] for probs_i in probs]
 
 
-def compute_metrics(logits, trues):
+def compute_metrics(logits, trues, classes):
     logits = torch.FloatTensor(logits)
     preds = torch.argmax(logits, dim=-1).cpu().tolist()
     probs = torch.softmax(logits, dim=-1).cpu().tolist()
@@ -67,7 +68,7 @@ def compute_metrics(logits, trues):
 
     roc_auc = auc(fpr, tpr)
     
-    report = classification_report(y_true=trues, y_pred=preds, target_names=['não covid', 'covid', 'rejeição'])
+    report = classification_report(y_true=trues, y_pred=preds, target_names=classes)
     return acc, f1, conf, sensitivity, roc_auc, report
 
 
@@ -104,7 +105,11 @@ def mktrainval(args, logger):
     train_set = tv.datasets.ImageFolder(pjoin(args.datadir, "train"), train_tx)
     valid_set = tv.datasets.ImageFolder(pjoin(args.datadir, "val"), val_tx)
   elif args.dataset == "covid":
-    train_set, valid_set, test_set = covid_dataset.prepare_data(datadir=args.datadir, train_tx=train_tx, valid_tx=valid_tx) 
+    train_set, valid_set, test_set = covid_dataset.prepare_data(
+        datadir=args.datadir, train_tx=train_tx, valid_tx=valid_tx)
+  elif args.dataset == "covid_2classes":
+    train_set, valid_set, test_set = covid_dataset_2classes.prepare_data(
+        datadir=args.datadir, train_tx=train_tx, valid_tx=valid_tx) 
   else:
     raise ValueError(f"Sorry, we have not spent time implementing the "
                      f"{args.dataset} dataset in the PyTorch codebase. "
@@ -172,7 +177,8 @@ def run_eval(model, data_loader, device, chrono, logger, step):
     # measure elapsed time
     end = time.time()
 
-  acc, f1, conf, sensitivity, roc_auc, report = compute_metrics(logits=all_logits, trues=all_y)
+  acc, f1, conf, sensitivity, roc_auc, report = compute_metrics(
+      logits=all_logits, trues=all_y, classes=data_loader.dataset.classes)
   avg_loss = np.mean(all_c)
   model.train()
   logger.info(f"Validation@{step} loss {avg_loss}, "
