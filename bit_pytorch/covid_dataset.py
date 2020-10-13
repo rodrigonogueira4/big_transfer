@@ -12,11 +12,6 @@ class RXImagesFolder(Dataset):
         tv.transforms.ToPILImage()
     ])
 
-    transforms = tv.transforms.Compose([
-        tv.transforms.ToTensor(),
-        tv.transforms.Lambda(lambda img: img * 2.0 - 1.0)        
-    ])
-
     def __init__(self, path, augments):
 
         h5_file = h5py.File(path, 'r')
@@ -29,31 +24,16 @@ class RXImagesFolder(Dataset):
         return len(self.images)
 
     def __getitem__(self, idx):
-        im = self.images[idx][None, :, :]
+        im = self.images[idx][:, :, None].repeat(3, -1)
 
         # apply augmentations
         if self.augments is not None:
             im = self.np2pil(im)
             im = self.augments(im)
 
-        # to tensor
-        #im = self.transforms(im)
         return im, self.labels[idx]
 
  
-def get_train_augmentations():
-    return tv.transforms.Compose([
-        tv.transforms.RandomAffine(degrees=(-5, 5), translate=(0.02, 0.02), scale=(0.98, 1.02)),
-        tv.transforms.RandomHorizontalFlip(),
-    ])
-
-
-def get_valid_augmentations():
-    return tv.transforms.Compose([
-        tv.transforms.CenterCrop(512)
-    ])
-
-
 def prepare_data(datadir, train_tx, valid_tx):
     
     ds_train = RXImagesFolder(os.path.join(datadir, 'xray_550_COVIDx_train_sample2.hdf5'), augments=train_tx)

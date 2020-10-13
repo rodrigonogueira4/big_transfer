@@ -31,7 +31,6 @@ import bit_common
 import bit_hyperrule
 
 from sklearn.metrics import confusion_matrix, accuracy_score, f1_score
-from sklearn.metrics import roc_auc_score
 from sklearn.metrics import roc_curve
 from sklearn.metrics import auc
 from sklearn.metrics import classification_report
@@ -46,6 +45,14 @@ def sensitivity_score(conf, label=1):
         return 0
 
 
+def convert_to_binary(x):
+    return [1 if item == 1 else 0 for item in x]
+
+
+def convert_to_binary_probs(probs):
+    return [probs_i[1] for probs_i in probs]
+
+
 def compute_metrics(logits, trues):
     logits = torch.FloatTensor(logits)
     preds = torch.argmax(logits, dim=-1).cpu().tolist()
@@ -55,9 +62,10 @@ def compute_metrics(logits, trues):
     f1 = f1_score(trues, preds, average=None)
     conf = confusion_matrix(trues, preds)
     sensitivity = sensitivity_score(conf, label=1)
-    
-    # fpr, tpr, thresholds = roc_curve(trues, probs)
-    roc_auc = 0.0# auc(fpr, tpr)
+
+    fpr, tpr, thresholds = roc_curve(convert_to_binary(trues), convert_to_binary_probs(probs))
+
+    roc_auc = auc(fpr, tpr)
     
     report = classification_report(y_true=trues, y_pred=preds, target_names=['não covid', 'covid', 'rejeição'])
     return acc, f1, conf, sensitivity, roc_auc, report
@@ -109,6 +117,7 @@ def mktrainval(args, logger):
 
   logger.info(f"Using a training set with {len(train_set)} images.")
   logger.info(f"Using a validation set with {len(valid_set)} images.")
+  logger.info(f"Using a test set with {len(test_set)} images.")
 
   micro_batch_size = args.batch // args.batch_split
 
@@ -167,8 +176,6 @@ def run_eval(model, data_loader, device, chrono, logger, step):
   avg_loss = np.mean(all_c)
   model.train()
   logger.info(f"Validation@{step} loss {avg_loss}, "
-              f"acc {acc}, "
-              f"f1 {f1}, "
               f"conf {conf}, "
               f"sensitivity {sensitivity}, "
               f"roc_auc {roc_auc}, ")
