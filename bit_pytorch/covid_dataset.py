@@ -24,7 +24,12 @@ class RXImagesFolder(Dataset):
         return len(self.images)
 
     def __getitem__(self, idx):
-        im = self.images[idx][:, :, None].repeat(3, -1)
+        im = self.images[idx]
+        if im.ndim == 2:
+            im = im[:, :, None].repeat(3, -1)
+        elif im.ndim == 3:
+            im = im.transpose(1, 2, 0)
+            assert im.shape[2] == 3
 
         # apply augmentations
         if self.augments is not None:

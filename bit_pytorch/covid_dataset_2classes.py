@@ -26,7 +26,13 @@ class RXImagesFolder(Dataset):
         return len(self.images)
 
     def __getitem__(self, idx):
-        im = self.images[idx][:, :, None].repeat(3, -1)
+        
+        im = self.images[idx]
+        if im.ndim == 2:
+            im = im[:, :, None].repeat(3, -1)
+        elif im.ndim == 3:
+            im = im.transpose(1, 2, 0)
+            assert im.shape[2] == 3
 
         # apply augmentations
         if self.augments is not None:
@@ -40,6 +46,7 @@ def prepare_data(datadir, train_tx, valid_tx):
     
     ds_train = RXImagesFolder(os.path.join(datadir, 'xray_550_COVIDx_train_sample2.hdf5'), augments=train_tx)
     ds_valid = RXImagesFolder(os.path.join(datadir, 'xray_550_COVIDx_val_sample2.hdf5'), augments=valid_tx)
-    ds_test = RXImagesFolder(os.path.join(datadir, 'xray_550_COVIDx_test_sample2.hdf5'), augments=valid_tx)
+    #ds_test = RXImagesFolder(os.path.join(datadir, 'xray_550_COVIDx_test_sample2.hdf5'), augments=valid_tx)
+    ds_test = RXImagesFolder(os.path.join(datadir, 'xray_550_COVIDx_test_sample2_phase3_only.hdf5'), augments=valid_tx)
 
     return ds_train, ds_valid, ds_test
