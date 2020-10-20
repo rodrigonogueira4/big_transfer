@@ -44,9 +44,9 @@ class RXImagesFolder(Dataset):
  
 def prepare_data(datadir, train_tx, valid_tx):
     
-    ds_train = RXImagesFolder(os.path.join(datadir, 'xray_550_COVIDx_train_sample2.hdf5'), augments=train_tx)
-    ds_valid = RXImagesFolder(os.path.join(datadir, 'xray_550_COVIDx_val_sample2.hdf5'), augments=valid_tx)
-    #ds_test = RXImagesFolder(os.path.join(datadir, 'xray_550_COVIDx_test_sample2.hdf5'), augments=valid_tx)
-    ds_test = RXImagesFolder(os.path.join(datadir, 'xray_550_COVIDx_test_sample2_phase3_only.hdf5'), augments=valid_tx)
+    ds_train = RXImagesFolder(os.path.join(datadir, 'xray_1100_COVIDx_train_sample.hdf5'), augments=train_tx)
+    ds_valid = RXImagesFolder(os.path.join(datadir, 'xray_1100_COVIDx_val_sample.hdf5'), augments=valid_tx)
+    ds_test = RXImagesFolder(os.path.join(datadir, 'xray_1100_test_v2.hdf5'), augments=valid_tx)
+    #ds_test = RXImagesFolder(os.path.join(datadir, 'xray_550_COVIDx_test_sample2_phase3_only.hdf5'), augments=valid_tx)
 
     return ds_train, ds_valid, ds_test

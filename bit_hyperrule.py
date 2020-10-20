@@ -24,8 +24,8 @@ known_dataset_sizes = {
   'oxford_iiit_pet': (224, 224),
   'oxford_flowers102': (224, 224),
   'imagenet2012': (224, 224),
-  'covid': (512, 512),
-  'covid_2classes': (512, 512)
+  'covid': (550, 550),
+  'covid_2classes': (550, 550)
 }
 
 
